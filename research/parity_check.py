@@ -7,18 +7,22 @@ import pandas as pd
 import xau_lib as X
 
 mt_dir, hd_dir = sys.argv[1], sys.argv[2]
+tz = sys.argv[3] if len(sys.argv) > 3 else "nyclose"   # "nyclose" or "gmt0" (Exness-style server)
+suffix = "_gmt0" if tz == "gmt0" else ""
 
 
 def srv_to_utc(s):
     t = pd.to_datetime(s, format="%Y.%m.%d %H:%M")
+    if tz == "gmt0":
+        return t.dt.tz_localize("UTC")
     # NY-close server time = New York + 7h
     ny = (t - pd.Timedelta(hours=7)).dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="shift_forward")
     return ny.dt.tz_convert("UTC")
 
 
-ctx = pd.read_csv(f"{mt_dir}/parity_context.csv")
+ctx = pd.read_csv(f"{mt_dir}/parity_context{suffix}.csv")
 ctx["t"] = srv_to_utc(ctx["close_time"])
-sig_mt = pd.read_csv(f"{mt_dir}/parity_signals.csv")
+sig_mt = pd.read_csv(f"{mt_dir}/parity_signals{suffix}.csv")
 sig_mt["t"] = srv_to_utc(sig_mt["close_time"])
 
 m1 = X.load_all(hd_dir, None, start="2022-01-01")

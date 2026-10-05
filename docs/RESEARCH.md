@@ -137,8 +137,9 @@ At 1% risk that is a 14–17% dip from streaks alone. Size your risk so you can 
 ### 4.6 Money simulation with your rules
 
 Full bot: risk % per trade, max 2 positions (one per strategy), 50% daily loss limit and
-40% giveback lock (arming at 1%) checked on equity every minute, 0.01-lot granularity,
-$1,000 start. Max DD = worst peak-to-trough fall of the account.
+40% **daily** giveback lock (arming at 1%; first design, closing positions when a rule
+fired) checked on equity every minute, 0.01-lot granularity, $1,000 start. Max DD =
+worst peak-to-trough fall of the account. For the final whole-account lock see 4.11.
 
 | Risk/trade | 2011–2018: CAGR / max DD | 2019–2026: CAGR / max DD | Worst single day |
 |---|---|---|---|
@@ -223,21 +224,25 @@ Wednesday filter. The live news filter covers FOMC days.
 ### 4.9 Parity: does the EA do what was backtested?
 
 `research/mt5/XauBot_ParityTest.mq5` replays 2023-03 → 2026-01 (16,242 H1 bars) through
-the EA's own `CMarket` and `CSignals` classes inside MetaTrader 5 build 6238, on a custom
-symbol built from the same data:
+the EA's own `CMarket` and `CSignals` classes inside MetaTrader 5 build 6238, on custom
+symbols built from the same data. It was run twice: on a "New York close" server
+(GMT+2/+3) and on an **Exness-style GMT+0 server** (with Sunday stub candles).
 
-| | Result |
+| | Result (both server time zones) |
 |---|---|
 | Close, EMA21, EMA50 | identical (relative difference < 0.0002%) |
 | ATR, RSI | within 0.01–0.08% |
 | Session clocks (London/NY hour) | identical |
 | Previous-day high/low | identical on 95%+ of days |
 | H1 trend flag | 99.99% agreement |
-| **Signals (all 5 strategies)** | **1,283 common of 1,320 (MT5) / 1,298 (Python), about 97%** |
+| **Signals (all 5 strategies)** | **1,290 common of 1,292 (MT5) / 1,298 (Python), 99.4%**; Momentum 100%, Trend Pullback 99.1% |
+| GMT+0 vs GMT+2/+3 server | **identical signal lists** |
 
-The remaining differences come from MT5 including a few holiday half-day daily
-candles that the Python version drops. That moves the daily EMA50 by about 0.1–0.3%, which
-only matters when price sits right on it.
+The first version used the broker's own daily candles for the daily EMA50 filter. That
+gave 97% agreement and would have differed on GMT+0 brokers like Exness, whose
+daily candles include a short Sunday-evening session. The EA now builds its own
+New-York-close daily bars from H1 data (holiday and Sunday stubs dropped, exactly like the
+research). That made the daily filter broker-independent and lifted agreement to 99.4%.
 
 **Live-mode smoke test.** The EA was attached to a custom gold symbol in MT5 (Wine, offline)
 and driven by a 1-second timer (`research/mt5/XauBot_SmokeDriver.mq5`; an offline terminal does
@@ -269,6 +274,52 @@ Default configuration, data never used for any decision:
 Money simulation over the same period: **+17.8% at 1% risk (max DD 10.0%)**, +40.0% at 2%
 risk (max DD 21.1%). The result is real but lumpy: January's trend made the year so far;
 February–July together were about flat.
+
+### 4.11 Your setup: Exness Standard Cent, 1,900 USC, whole-account lock
+
+`research/run_cent_account.py` and `run_cent_cycles.py`. Cent lots (0.01 lot ≈ 0.01 oz, so a
+$1 gold move = 1 US cent), start 1,900 USC, 50% daily loss limit, 40% **whole-account**
+giveback lock, stop = no new trades (open trades finish on their own stops), 25% min-lot
+tolerance, all costs.
+
+**A design flaw this study caught.** If trades are sized so they can never break the
+account lock, the room right after the lock arms is tiny (40% of a small profit). Every
+trade is then too small to place, and the bot freezes without the lock ever firing (only
+14 trades in 3 years). The lock is therefore a **stop trigger only**; only the 50% daily
+limit caps trade size.
+
+**Rolling starts** (53 start dates 2011–2025, each up to 3 years; final balance in USC):
+
+| Risk | Lock arms at | Lock fired | Median time to fire | Median | Worst 10% | Best 10% | Runs losing money | Median max DD |
+|---|---|---|---|---|---|---|---|---|
+| 1% | no lock | – | – | 2,186 | 1,638 | 4,346 | 34% | 27% |
+| 1% | +25% | 45% | 14.5 mo | 2,264 | 1,638 | 3,914 | 23% | 16% |
+| 2% | no lock | – | – | 2,127 | 1,233 | 9,726 | 40% | 53% |
+| 2% | +1% | 94% | 0.8 mo | 1,964 | 1,902 | 2,445 | 9% | 8% |
+| 2% | +10% | 89% | 2.6 mo | 2,110 | 2,010 | 2,659 | 8% | 14% |
+| **2%** | **+25%** | **81%** | **7.8 mo** | **2,277** | **1,993** | **3,360** | **9%** | **22%** |
+| 3% | no lock | – | – | 1,748 | 810 | 19,032 | 55% | 70% |
+| 3% | +25% | 81% | 4.3 mo | 2,364 | 1,420 | 3,803 | 13% | 25% |
+
+At 1% risk the minimum lot is usually too large for the 1,900 USC balance, so most signals
+are skipped and the lock rarely arms. 2% with arming at +25% gives the best balance:
+the lock usually fires with a gain of about 20%, and only 9% of runs ended below the start.
+
+**With 50% wider spreads** (cent accounts often quote wider): practically unchanged, because
+H1 stops (~$37) are about 60× the spread.
+
+**Restarting immediately after every lock** (continuous run, 1,900 USC start):
+
+| Period | Risk | No lock | Lock +25%, restart next day |
+|---|---|---|---|
+| 2011–2018 | 1% | 3,000 (max DD 35%) | 2,998 |
+| 2011–2018 | 2% | 3,346 (max DD 60%) | 3,342 |
+| 2019–2026 | 1% | 5,644 (max DD 39%) | 5,644 |
+| 2019–2026 | 2% | 10,997 (max DD 68%) | 11,631 |
+
+If you restart right away, the lock changes almost nothing in the long run, because the
+edge comes from the strategy. Its value is in what you do when it fires: **bank the
+profit** (withdraw or keep it aside) before starting the next round.
 
 ## 5. Limits of this research. Read before trusting any number
 

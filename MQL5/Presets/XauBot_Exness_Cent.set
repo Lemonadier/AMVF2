@@ -1,0 +1,17 @@
+InpDailyMaxLossPct=50
+InpGivebackScope=0
+InpGivebackPct=40
+InpGivebackArmPct=25
+InpPeakBasis=0
+InpResetAccountLock=false
+InpLockAutoRestartDays=0
+InpCloseOnStop=false
+InpAccountWidePnL=true
+InpRiskPerTradePct=2.0
+InpMinLotOverRiskPct=25
+InpMaxOpenPositions=2
+InpMaxTradesPerDay=8
+InpGMTMode=2
+InpManualGMTOffset=0
+InpMaxSpreadUSD=1.0
+InpMaxSlippageUSD=0.5

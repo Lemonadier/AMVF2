@@ -1,3 +1,5 @@
 InpRiskPerTradePct=1.0
 InpMaxOpenPositions=2
 InpMaxTradesPerDay=8
+InpCloseOnStop=false
+InpGivebackScope=0

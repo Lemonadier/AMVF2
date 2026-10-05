@@ -47,5 +47,7 @@ void OnTimer()
    if(g_smokeCalls % 60 == 0)
       PrintFormat("[Smoke] t=%ds learned samples=%I64d open shadows=%d calN=%I64d meanP=%.3f meanY=%.3f | guard: base %.2f net %.2f stopped=%s room %.2f",
                   g_smokeCalls, g_ai.Samples(), g_ai.OpenShadows(), g_ai.CalN(), g_ai.CalMeanP(), g_ai.CalMeanY(),
-                  g_guard.Base(), g_guard.Net(), g_guard.Stopped() ? "yes" : "no", g_guard.Room());
+                  g_guard.Base(), g_guard.DayNet(), g_guard.Stopped() ? "yes" : "no", g_guard.Room());
+   if(g_smokeCalls == 90)
+      PrintFormat("[Smoke] account lock: since %s base %.2f net %.2f peak %.2f armed=%s stopped=%s", TimeToString(g_guard.AccountStart()), g_guard.AccountBase(), g_guard.AccountNet(), g_guard.AccountPeak(), g_guard.AccountArmed() ? "yes" : "no", g_guard.AccountStopped() ? "yes" : "no");
   }

@@ -12,7 +12,9 @@ Results and conclusions: [../docs/RESEARCH.md](../docs/RESEARCH.md).
 | `run_ai_eval.py` | Does the online learner add value? (walk-forward) |
 | `run_portfolio.py` | Money simulation with risk per trade and both daily rules. |
 | `run_oos.py` | Out-of-sample check of the defaults. |
-| `parity_check.py` | Compares the EA's own signals (from `mt5/XauBot_ParityTest`) with Python. |
+| `run_cent_account.py` | Exness cent account (1,900 USC) with the whole-account lock: rolling start dates. |
+| `run_cent_cycles.py` | Same, with restarts after every lock over the full periods. |
+| `parity_check.py` | Compares the EA's own signals (from `mt5/XauBot_ParityTest`) with Python; `nyclose` or `gmt0` server time. |
 | `download_dukascopy.py` | Free Dukascopy M1 downloader (rate-limited and slow, but resumable). |
 | `mt5/XauBot_ImportGold.mq5` | Builds a custom gold symbol in MT5 from an M1 CSV. |
 | `mt5/XauBot_ParityTest.mq5` | Replays history through the EA's `CMarket`/`CSignals` and writes all signals. |

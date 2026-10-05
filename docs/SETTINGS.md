@@ -8,13 +8,17 @@ on made the 2011–2026 results worse.
 
 | Input | Default | Meaning |
 |---|---|---|
-| `InpDailyMaxLossPct` | 50 | Max loss per day as % of the day-start balance. Measured on closed + open P/L. |
-| `InpGivebackPct` | 40 | Stop for the day after giving back this % of the day's peak net profit. |
-| `InpGivebackArmPct` | 1.0 | The profit lock only switches on after the day's profit reaches this % of the day-start balance. `0` = from the first dollar (then a tiny first win plus a small dip ends the day). |
-| `InpPeakBasis` | Closed profit | How the day's peak is measured. *Closed (banked) profit*: open trades swinging in profit do not move the peak. *Closed + floating*: stricter; a winning open trade that pulls back 40% stops the day. |
-| `InpCloseOnStop` | true | When a daily rule fires, close the bot's open trades. `false` only blocks new trades, so open trades can then lose more than the rule allows. |
-| `InpAccountWidePnL` | true | Rules use the whole account's P/L today (all symbols, manual trades too). `false` = only this bot's trades. The bot only ever **closes its own** positions. |
-| `InpDayResetHour` | 0 | Server hour when a new trading day starts. With most brokers 0 = 17:00 New York, the natural end of the gold day. |
+| `InpDailyMaxLossPct` | 50 | Max loss per day as % of the day-start balance, measured on closed + open P/L. New trades are sized so all open stops together cannot break it. |
+| `InpGivebackScope` | Whole account | Where rule 2 applies. *Whole account*: profit since the bot started (or `InpAccountStartDate`), stays stopped until you reset it. *Each trading day*: profit of the day, the stop ends the next day. *Off*. |
+| `InpGivebackPct` | 40 | Stop after giving back this % of the best net profit (profit $100 → stop at $60). |
+| `InpGivebackArmPct` | 25 | The lock arms once profit reaches this % of the starting balance (account scope) or of the day-start balance (day scope; use about 1 there). Lower values stop the bot very early: arming at 1% stopped it after ~12 trades in simulation. |
+| `InpPeakBasis` | Closed profit | How the best profit is measured. *Closed (banked) profit*: an open winner swinging back does not count as giveback. *Closed + floating*: stricter. |
+| `InpResetAccountLock` | false | Set to **true** and press OK to start a new round: baseline = now, lock cleared. It acts once; set it back to false afterwards (the bot reminds you). |
+| `InpAccountStartDate` | 0 | Count account profit from this date instead of from when the bot first started. Example: the date you deposited. |
+| `InpLockAutoRestartDays` | 0 | Restart automatically this many days after the account lock fires (new baseline = that moment). 0 = only by manual reset. |
+| `InpCloseOnStop` | false | When a rule fires: *false* = only stop opening new trades, open trades keep their stops; *true* = also close the bot's open trades. |
+| `InpAccountWidePnL` | true | Rules use the whole account's P/L (all symbols, manual trades too). `false` = only this bot's trades. The bot only ever closes **its own** positions. |
+| `InpDayResetHour` | 0 | Server hour when a new trading day starts (Exness: 0 = 00:00 UTC). |
 
 ## 2. Position sizing
 
@@ -22,12 +26,12 @@ on made the 2011–2026 results worse.
 |---|---|---|
 | `InpRiskPerTradePct` | 1.0 | Money lost if the stop is hit, as % of balance. Research: 1% → ~30–35% worst drawdown, 2% → ~60–65%, 3% → ~80%, 5% → account wiped. |
 | `InpCommissionPerLot` | 0 | Round-turn commission per 1.0 lot in account currency (e.g. 7). Included in sizing. |
-| `InpMinLotOverRiskPct` | 25 | If even the minimum lot risks more than planned, still trade it when the excess is at most this %. Otherwise skip. |
+| `InpMinLotOverRiskPct` | 25 | If even the minimum lot risks more than planned, still trade it when the excess is at most this % (and it fits the daily limit). Otherwise skip. On a 1,900 USC cent account at 2% risk this allows trades with stops up to ~$47. |
 | `InpMaxLot` | 0 | Hard cap on lots per trade (0 = broker maximum). |
 | `InpMaxMarginUsePct` | 50 | A new trade may use at most this % of free margin; lots are reduced to fit. |
 | `InpMaxOpenPositions` | 2 | Max simultaneous positions (also max one per strategy). Netting accounts: always 1. |
 | `InpMaxTradesPerDay` | 8 | Max new trades per day. |
-| `InpSizeToGuardRoom` | true | Shrinks a trade so that, even if every open stop is hit, the daily rules cannot be breached. |
+| `InpSizeToGuardRoom` | true | Shrinks a trade so that, even if every open stop is hit, the 50% daily loss limit cannot be breached. (The profit giveback lock is a stop trigger only. Sizing to its small early room would freeze the bot.) |
 
 ## 3. Strategies
 
@@ -99,10 +103,11 @@ rate) and a **skill score** (>0 = better than always guessing the average).
 | Input | Default | Meaning |
 |---|---|---|
 | `InpGMTMode` | Auto | Live: detects the broker offset from server and GMT clocks. Tester: assumes "New York close" (GMT+2 / GMT+3 with US daylight saving). |
-| `InpManualGMTOffset` | 2 | Fixed offset in hours when mode = Manual (for example 0 for Exness). |
+| `InpManualGMTOffset` | 2 | Fixed offset in hours when mode = Manual (**0 for Exness**; the Exness preset sets it). |
 
 The time zone affects the session clocks (London/New York hours, rollover filter,
-Friday close). Use **Manual** in the tester if your broker is not on New York close time.
+Friday close) and how H1 bars are grouped into New-York-close daily bars for the daily
+filter. Use **Manual** in the tester if your broker is not on New York close time.
 
 ## 8. General
 
@@ -110,6 +115,6 @@ Friday close). Use **Manual** in the tester if your broker is not on New York cl
 |---|---|---|
 | `InpMagic` | 20261005 | Identifies the bot's trades. Use a different number per chart if you run several copies. |
 | `InpComment` | XauAI | Order comment prefix (strategy name is appended). |
-| `InpSlippagePoints` | 50 | Max price deviation for market orders. |
+| `InpMaxSlippageUSD` | 0.50 | Max price deviation for market orders, in USD per ounce (works for 2- and 3-digit gold quotes). |
 | `InpShowDashboard` | true | On-chart status panel. |
 | `InpVerbose` | false | Log every bar's readings and every skipped signal with the reason. |

@@ -22,6 +22,8 @@ private:
    int               hH1EMA50, hH1EMA200, hH1ATR, hH1ADX, hH4EMA50, hD1EMA50, hD1EMA200;
    datetime          m_asiaDay;      // UTC day the cached Asian range belongs to
    datetime          m_nyDayStart;   // UTC start of the cached NY trading day
+   bool              m_nyOk;         // NY-calendar daily EMAs available
+   double            m_nyClose, m_nyE50, m_nyE200;
    double            m_dAtrCache;
    double            m_pdhCache, m_pdlCache;
 
@@ -92,6 +94,7 @@ public:
       m_asiaDay = 0;
       m_nyDayStart = 0;
       m_pdhCache = 0.0; m_pdlCache = 0.0; m_dAtrCache = 0.0;
+      m_nyOk = false; m_nyClose = 0.0; m_nyE50 = 0.0; m_nyE200 = 0.0;
       d1Atr = 0.0; pdh = 0.0; pdl = 0.0;
       asiaValid = false; asiaHi = 0.0; asiaLo = 0.0;
       h1Up = false; h1Dn = false;
@@ -201,64 +204,70 @@ public:
       atrPct = (cnt > 0) ? (double)below / cnt : 0.5;
 
       UpdateDaily(clk, cu);   // d1Atr/pdh/pdl stay 0 if daily history is missing; only LBO/LSR use them
+      if(m_nyOk)
+        {
+         d1Close = m_nyClose;
+         d1Ema50 = m_nyE50;
+         d1Ema200 = m_nyE200;
+        }
       UpdateAsia(clk, cu);
       if(atr[1] <= 0)
          lastError = "ATR is zero";
       return (atr[1] > 0);
      }
 
-   //--- previous New-York-close day high/low and a 14-day ATR on that calendar
+   //--- daily bars on the New-York-close calendar (17:00 NY), built from H1 so every broker time zone
+   //--- (GMT+0 servers like Exness have a Sunday stub candle) gives the same daily values as the research:
+   //--- previous-day high/low, 14-day ATR, and the daily close / EMA50 / EMA200 used by the daily filter
    void UpdateDaily(CClock &clk, const datetime closeUtc)
      {
-      // NY trading day starts 17:00 New York time
       datetime nyLocal = closeUtc - (IsUSDST(closeUtc) ? 4 : 5) * 3600;
       datetime dayStartUtc = DayFloor(nyLocal + 7 * 3600) - 7 * 3600 + (IsUSDST(closeUtc) ? 4 : 5) * 3600;
-      if(dayStartUtc == m_nyDayStart && d1Atr > 0)
+      if(dayStartUtc == m_nyDayStart)
         {
-         pdh = m_pdhCache; pdl = m_pdlCache;
+         pdh = m_pdhCache; pdl = m_pdlCache; d1Atr = m_dAtrCache;
          return;
         }
+      m_nyDayStart = dayStartUtc;   // one attempt per NY day, even if history is short
+      m_nyOk = false;
       MqlRates r[];
       ArraySetAsSeries(r, false);
-      datetime fromSrv = clk.ToServer(dayStartUtc - 30 * 86400);
+      datetime fromSrv = clk.ToServer(dayStartUtc - 500 * 86400);
       datetime toSrv   = clk.ToServer(dayStartUtc) - 1;
       int n = CopyRates(m_sym, PERIOD_H1, fromSrv, toSrv, r);
       if(n < 48)
          return;
-      // aggregate H1 bars into NY days
-      double dh[], dl[], dc[];
-      ArrayResize(dh, 0); ArrayResize(dl, 0); ArrayResize(dc, 0);
-      datetime curKey = 0;
-      int bars = 0, k = -1;
-      int cntBars[];
-      ArrayResize(cntBars, 0);
-      for(int i = 0; i < n; i++)
-        {
-         datetime u = clk.ToUTC(r[i].time);
-         datetime nl = u - (IsUSDST(u) ? 4 : 5) * 3600;
-         datetime key = DayFloor(nl + 7 * 3600);
-         if(key != curKey)
-           {
-            k++;
-            ArrayResize(dh, k + 1); ArrayResize(dl, k + 1); ArrayResize(dc, k + 1); ArrayResize(cntBars, k + 1);
-            dh[k] = r[i].high; dl[k] = r[i].low; dc[k] = r[i].close; cntBars[k] = 0;
-            curKey = key;
-           }
-         dh[k] = MathMax(dh[k], r[i].high);
-         dl[k] = MathMin(dl[k], r[i].low);
-         dc[k] = r[i].close;
-         cntBars[k]++;
-        }
-      // drop stub sessions (fewer than 2 hours of data)
       double H[], L[], C[];
-      int m = 0;
-      for(int i = 0; i <= k; i++)
+      ArrayResize(H, 0, 520); ArrayResize(L, 0, 520); ArrayResize(C, 0, 520);
+      datetime curKey = 0;
+      int m = 0, cnt = 0;
+      double dh = 0, dl = 0, dc = 0;
+      for(int i = 0; i <= n; i++)
         {
-         if(cntBars[i] < 2)
-            continue;
-         ArrayResize(H, m + 1); ArrayResize(L, m + 1); ArrayResize(C, m + 1);
-         H[m] = dh[i]; L[m] = dl[i]; C[m] = dc[i];
-         m++;
+         datetime key = 0;
+         if(i < n)
+           {
+            datetime u = clk.ToUTC(r[i].time);
+            datetime nl = u - (IsUSDST(u) ? 4 : 5) * 3600;
+            key = DayFloor(nl + 7 * 3600);
+           }
+         if(i == n || key != curKey)
+           {
+            if(curKey != 0 && cnt >= 3)        // drop stub sessions (holidays, Sunday open)
+              {
+               ArrayResize(H, m + 1, 520); ArrayResize(L, m + 1, 520); ArrayResize(C, m + 1, 520);
+               H[m] = dh; L[m] = dl; C[m] = dc;
+               m++;
+              }
+            if(i == n)
+               break;
+            curKey = key;
+            dh = r[i].high; dl = r[i].low; cnt = 0;
+           }
+         dh = MathMax(dh, r[i].high);
+         dl = MathMin(dl, r[i].low);
+         dc = r[i].close;
+         cnt++;
         }
       if(m < 15)
          return;
@@ -268,8 +277,21 @@ public:
       for(int i = m - 14; i < m; i++)
          sum += MathMax(H[i] - L[i], MathMax(MathAbs(H[i] - C[i - 1]), MathAbs(L[i] - C[i - 1])));
       d1Atr = sum / 14.0;
-      m_pdhCache = pdh; m_pdlCache = pdl;
-      m_nyDayStart = dayStartUtc;
+      m_pdhCache = pdh; m_pdlCache = pdl; m_dAtrCache = d1Atr;
+      // EMAs need enough days to converge; otherwise fall back to the broker's D1 iMA
+      if(m >= 120)
+        {
+         double e50 = C[0], e200 = C[0];
+         for(int i = 1; i < m; i++)
+           {
+            e50 += 2.0 / 51.0 * (C[i] - e50);
+            e200 += 2.0 / 201.0 * (C[i] - e200);
+           }
+         m_nyClose = C[m - 1];
+         m_nyE50 = e50;
+         m_nyE200 = e200;
+         m_nyOk = true;
+        }
      }
 
    //--- Asian range = signal-TF bars opening 00:00-07:00 UTC of the current UTC day

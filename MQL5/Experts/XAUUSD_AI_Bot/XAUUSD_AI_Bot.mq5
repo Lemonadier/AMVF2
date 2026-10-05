@@ -38,10 +38,14 @@
 //+------------------------------------------------------------------+
 input group "=== 1. Your account rules ==="
 input double            InpDailyMaxLossPct   = 50.0;              // Max loss per day (% of day-start balance)
-input double            InpGivebackPct       = 40.0;              // Stop after giving back this % of the day's net profit
-input double            InpGivebackArmPct    = 1.0;               // Profit lock starts once day profit >= this % of balance
-input ENUM_XB_PEAK_BASIS InpPeakBasis        = XB_PEAK_REALIZED;  // Day profit peak measured on
-input bool              InpCloseOnStop       = true;              // Close the bot's positions when a daily stop hits
+input ENUM_XB_GB_SCOPE  InpGivebackScope     = XB_GB_ACCOUNT;     // Profit giveback lock applies to
+input double            InpGivebackPct       = 40.0;              // Stop after giving back this % of the best net profit
+input double            InpGivebackArmPct    = 25.0;              // Lock arms once profit >= this % of the starting balance
+input ENUM_XB_PEAK_BASIS InpPeakBasis        = XB_PEAK_REALIZED;  // Best profit measured on
+input bool              InpResetAccountLock  = false;             // Reset the account profit lock (new start = now), then set back to false
+input datetime          InpAccountStartDate  = 0;                 // Count account profit from this date (0 = when the bot starts)
+input int               InpLockAutoRestartDays = 0;               // Restart automatically N days after the lock fires (0 = never)
+input bool              InpCloseOnStop       = false;             // Close the bot's positions when a stop fires (false = only stop opening)
 input bool              InpAccountWidePnL    = true;              // Rules use whole-account P/L (false = this bot only)
 input int               InpDayResetHour      = 0;                 // New trading day starts at this server hour
 
@@ -118,7 +122,7 @@ input int               InpManualGMTOffset   = 2;                 // Manual offs
 input group "=== 8. General ==="
 input long              InpMagic             = 20261005;          // Magic number
 input string            InpComment           = "XauAI";           // Order comment prefix
-input int               InpSlippagePoints    = 50;                // Max slippage (points)
+input double            InpMaxSlippageUSD    = 0.50;              // Max slippage (price, USD per oz)
 input bool              InpShowDashboard     = true;              // Show the on-chart panel
 input bool              InpVerbose           = false;             // Detailed log
 
@@ -174,8 +178,23 @@ int OnInit()
                   InpRiskPerTradePct);
 
    g_clock.Init(InpGMTMode, InpManualGMTOffset);
-   g_guard.Init(InpMagic, _Symbol, InpDailyMaxLossPct, InpGivebackPct, InpGivebackArmPct, InpPeakBasis,
-                InpAccountWidePnL, InpDayResetHour, InpPauseAfterLosses, InpPauseMinutes);
+   //--- one-shot reset of the account profit lock (not repeated on chart/timeframe re-inits)
+   bool resetLock = false;
+   string resetKey = GVName(InpMagic, "lockresetdone");
+   if(InpResetAccountLock && !g_tester)
+     {
+      if(GVGet(resetKey, 0) < 0.5)
+        {
+         resetLock = true;
+         GVSet(resetKey, 1);
+         Alert("XAUUSD AI Bot: account profit lock reset. Set 'Reset the account profit lock' back to false.");
+        }
+     }
+   else
+      GlobalVariableDel(resetKey);
+   g_guard.Init(InpMagic, _Symbol, InpDailyMaxLossPct, InpGivebackPct, InpGivebackArmPct, InpGivebackScope, InpPeakBasis,
+                InpAccountWidePnL, InpDayResetHour, InpPauseAfterLosses, InpPauseMinutes, InpLockAutoRestartDays,
+                resetLock, InpAccountStartDate);
 
    if(!g_market.Init(_Symbol, InpSignalTF))
       return INIT_FAILED;
@@ -208,7 +227,8 @@ int OnInit()
    g_ai.Init(InpAIModelName, InpMagic, InpAILearnRate, InpAIL2, InpAILabelR,
              InpAIHorizonBars * PeriodSeconds(InpSignalTF), InpAIMinSamples, loadModel, InpAIReset);
 
-   g_exec.Init(_Symbol, InpMagic, InpSlippagePoints, InpMaxLot, InpVerbose);
+   int slipPts = (int)MathCeil(InpMaxSlippageUSD / MathMax(SymbolInfoDouble(_Symbol, SYMBOL_POINT), 1e-9));
+   g_exec.Init(_Symbol, InpMagic, slipPts, InpMaxLot, InpVerbose);
 
    XBManageConfig mc;
    mc.trailStartR = InpTrailStartR;
@@ -231,8 +251,10 @@ int OnInit()
    if(!g_tester && !(bool)TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
       Print("[XauBot] NOTE: 'Algo Trading' is disabled in the terminal - the bot will not open trades until you enable it.");
 
-   PrintFormat("[XauBot] v%s started on %s | risk %.2f%%/trade | daily loss %.0f%% | giveback %.0f%% (arms at %.1f%%) | TF %s | AI %s | %s",
-               XB_VERSION, _Symbol, InpRiskPerTradePct, InpDailyMaxLossPct, InpGivebackPct, InpGivebackArmPct,
+   PrintFormat("[XauBot] v%s started on %s | risk %.2f%%/trade | daily loss %.0f%% | giveback %.0f%% %s (arms at +%.1f%%) | %s | TF %s | AI %s | %s",
+               XB_VERSION, _Symbol, InpRiskPerTradePct, InpDailyMaxLossPct, InpGivebackPct,
+               InpGivebackScope == XB_GB_ACCOUNT ? "of account profit" : (InpGivebackScope == XB_GB_DAY ? "of day profit" : "OFF"),
+               InpGivebackArmPct, InpCloseOnStop ? "close on stop" : "stop = no new trades",
                EnumToString(InpSignalTF), EnumToString(InpAIMode), g_clock.Describe(TimeTradeServer()));
    g_ready = true;
    return INIT_SUCCEEDED;
@@ -483,11 +505,13 @@ bool Execute(XBSignal &s, string &info)
 
    //--- how much money this trade may lose
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double riskMoney = balance * InpRiskPerTradePct / 100.0 * s.riskMult;
+   double baseRisk = balance * InpRiskPerTradePct / 100.0 * s.riskMult;
+   double riskMoney = baseRisk;
+   double cap = DBL_MAX;                       // daily-loss room left after all open stops
    if(InpSizeToGuardRoom)
      {
-      double room = g_guard.Room() - g_mgr.OpenRisk();
-      riskMoney = MathMin(riskMoney, room * 0.9);
+      cap = (g_guard.Room() - g_mgr.OpenRisk()) * 0.9;
+      riskMoney = MathMin(riskMoney, cap);
      }
    if(riskMoney <= 0)
      {
@@ -504,11 +528,12 @@ bool Execute(XBSignal &s, string &info)
    if(lots <= 0)
      {
       double minLot = g_exec.MinLot();
-      if(minLot * perLot <= riskMoney * (1.0 + InpMinLotOverRiskPct / 100.0))
+      double minRisk = minLot * perLot;
+      if(minRisk <= baseRisk * (1.0 + InpMinLotOverRiskPct / 100.0) && minRisk <= cap)
          lots = g_exec.NormalizeLots(minLot);
       if(lots <= 0)
         {
-         info = StringFormat("account too small: min lot risks %.2f, budget %.2f", minLot * perLot, riskMoney);
+         info = StringFormat("min lot risks %.2f, budget %.2f (account too small for this stop)", minRisk, riskMoney);
          return false;
         }
      }
@@ -549,18 +574,33 @@ void DrawDashboard(const datetime now)
   {
    color ok = C'120,220,140', warn = C'255,190,90', bad = C'255,110,110', dim = C'150,160,175', txt = C'220,225,235';
    string ccy = AccountInfoString(ACCOUNT_CURRENCY);
-   double net = g_guard.Net();
+   double net = g_guard.DayNet();
    g_dash.Set(0, StringFormat("XAUUSD AI Bot v%s  |  %s  |  %s", XB_VERSION, _Symbol, g_clock.Describe(now)), C'255,215,90');
    g_dash.Set(1, StringFormat("Day start balance : %.2f %s", g_guard.Base(), ccy), txt);
-   g_dash.Set(2, StringFormat("Day net P/L       : %+.2f (closed %+.2f, open %+.2f)", net, g_guard.Realized(), g_guard.FloatingPL()),
+   g_dash.Set(2, StringFormat("Day net P/L       : %+.2f (closed %+.2f, open %+.2f)", net, g_guard.DayRealized(), g_guard.FloatingPL()),
               net >= 0 ? ok : bad);
-   g_dash.Set(3, StringFormat("Loss limit (%.0f%%)  : -%.2f   room left %.2f", InpDailyMaxLossPct, g_guard.LossLimit(), g_guard.Room()), txt);
-   if(g_guard.Armed())
-      g_dash.Set(4, StringFormat("Profit lock       : peak %+.2f -> stop at %+.2f", g_guard.Peak(), g_guard.LockLevel()), warn);
+   g_dash.Set(3, StringFormat("Day loss limit %.0f%%: -%.2f   room left %.2f", InpDailyMaxLossPct, g_guard.LossLimit(), g_guard.Room()), txt);
+   if(InpGivebackScope == XB_GB_ACCOUNT)
+     {
+      double an = g_guard.AccountNet();
+      if(g_guard.AccountArmed())
+         g_dash.Set(4, StringFormat("Account lock      : profit %+.2f, best %+.2f -> stop at %+.2f", an, g_guard.AccountPeak(),
+                                    g_guard.AccountLockLevel()), warn);
+      else
+         g_dash.Set(4, StringFormat("Account lock      : profit %+.2f since %s, arms at +%.2f", an,
+                                    TimeToString(g_guard.AccountStart(), TIME_DATE), g_guard.AccountArmLevel()), dim);
+     }
    else
-      g_dash.Set(4, StringFormat("Profit lock       : arms at +%.2f (peak %+.2f)", g_guard.ArmLevel(), g_guard.Peak()), dim);
-   g_dash.Set(5, g_guard.Stopped() ? "STATUS            : STOPPED - " + g_guard.Reason() + " (until next day)" :
-              "STATUS            : TRADING", g_guard.Stopped() ? bad : ok);
+      if(InpGivebackScope == XB_GB_DAY)
+         g_dash.Set(4, g_guard.DayArmed() ? StringFormat("Day profit lock   : best %+.2f -> stop at %+.2f", g_guard.DayPeak(),
+                    g_guard.DayPeak() * (1.0 - InpGivebackPct / 100.0)) :
+                    StringFormat("Day profit lock   : arms at +%.2f", g_guard.Base() * InpGivebackArmPct / 100.0), dim);
+      else
+         g_dash.Set(4, "Profit lock       : off", dim);
+   string stopTxt = g_guard.AccountStopped() ? "STATUS            : STOPPED - ACCOUNT PROFIT LOCK (reset in inputs)" :
+                    (g_guard.Stopped() ? "STATUS            : STOPPED - " + g_guard.Reason() + " (until next day)" :
+                     "STATUS            : TRADING");
+   g_dash.Set(5, stopTxt, g_guard.Stopped() ? bad : ok);
    g_dash.Set(6, StringFormat("Trades today      : %d / %d   open: %d   signals: %d", g_guard.TradesToday(), InpMaxTradesPerDay,
                               g_mgr.CountOpen(), g_signalsToday), txt);
    string trend = g_market.h1Up ? "UP" : (g_market.h1Dn ? "DOWN" : "NONE");

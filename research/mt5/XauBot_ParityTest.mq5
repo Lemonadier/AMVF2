@@ -11,11 +11,13 @@
 input string   InpSymbol = "XAUUSD.sim";
 input datetime InpFrom   = D'2023.03.01';
 input bool     InpAllStrategies = true;
+input ENUM_XB_GMT_MODE InpGMTMode = XB_GMT_NYCLOSE;   // server time zone of the symbol's data
+input int      InpGMTOffset = 0;                      // hours, when mode = manual
 
 void OnStart()
   {
    CClock clk;
-   clk.Init(XB_GMT_NYCLOSE, 2);
+   clk.Init(InpGMTMode, InpGMTOffset);
    CMarket m;
    if(!m.Init(InpSymbol, PERIOD_H1))
       return;
@@ -38,8 +40,9 @@ void OnStart()
       Sleep(500);
      }
    int start = iBarShift(InpSymbol, PERIOD_H1, InpFrom, false);
-   int fs = FileOpen("parity_signals.csv", FILE_WRITE | FILE_CSV | FILE_ANSI, ',');
-   int fc = FileOpen("parity_context.csv", FILE_WRITE | FILE_CSV | FILE_ANSI, ',');
+   string tag = (InpGMTMode == XB_GMT_MANUAL) ? StringFormat("_gmt%d", InpGMTOffset) : "";
+   int fs = FileOpen("parity_signals" + tag + ".csv", FILE_WRITE | FILE_CSV | FILE_ANSI, ',');
+   int fc = FileOpen("parity_context" + tag + ".csv", FILE_WRITE | FILE_CSV | FILE_ANSI, ',');
    FileWrite(fs, "close_time", "strat", "dir", "sl_dist");
    FileWrite(fc, "close_time", "close", "atr", "ema21", "ema50", "rsi", "adx", "h1up", "h1dn", "d1close", "d1ema50",
              "asia_hi", "asia_lo", "pdh", "pdl", "d1atr", "lon_h", "ny_h");

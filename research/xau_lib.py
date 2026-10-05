@@ -408,7 +408,17 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
               be_r, be_lock_r, partial_r, partial_frac, trail_start_r, trail_atr,
               max_bars_m1, time_stop_min_r, friday_close_h, intraday_close_ny_h, ny_h,
               portfolio, start_bal, risk_pct, daily_loss_pct, giveback_pct, giveback_arm_pct,
-              max_pos, contract, min_lot, lot_step, day_id, slip, roll_mult, swap_long, swap_short):
+              max_pos, contract, min_lot, lot_step, day_id, slip, roll_mult, swap_long, swap_short, opts):
+    # opts: [close_on_stop, daily_giveback_on, account_lock_on, account_gb_pct, account_arm_pct, minlot_tolerance]
+    close_on_stop = opts[0] > 0.5
+    daily_gb_on = opts[1] > 0.5
+    acct_on = opts[2] > 0.5
+    acct_gb = opts[3] / 100.0
+    acct_arm = opts[4] / 100.0 * start_bal
+    minlot_tol = opts[5]
+    acct_peak = 0.0
+    acct_stop = False
+    acct_stop_bar = -1
     n = len(c)
     ns = len(s_idx)
     MAXP = 16
@@ -528,10 +538,19 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
             hit = False
             if cur <= -daily_loss_pct / 100.0 * day_start_bal:
                 hit = True
-            if day_peak >= giveback_arm_pct / 100.0 * day_start_bal and day_peak > 0 and cur <= day_peak * (1.0 - giveback_pct / 100.0):
+            if daily_gb_on and day_peak >= giveback_arm_pct / 100.0 * day_start_bal and day_peak > 0 and cur <= day_peak * (1.0 - giveback_pct / 100.0):
+                hit = True
+            # whole-account profit giveback lock (latched until manual reset)
+            acct_real = bal - start_bal
+            if acct_real > acct_peak:
+                acct_peak = acct_real
+            if acct_on and not acct_stop and acct_peak > 0 and acct_peak >= acct_arm and acct_real + flo <= acct_peak * (1.0 - acct_gb):
+                acct_stop = True
+                acct_stop_bar = i
                 hit = True
             if hit and not day_stop:
                 day_stop = True
+            if hit and close_on_stop:
                 for j in range(MAXP):
                     if p_on[j]:
                         d = p_dir[j]
@@ -556,24 +575,39 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
                         if portfolio and p_strat[j] == s_strat[k]:
                             ok = False
                 if portfolio:
-                    if day_stop or nopen >= max_pos:
+                    if day_stop or acct_stop or nopen >= max_pos:
                         ok = False
                 if ok and s_risk_mult[k] <= 0:
                     ok = False
                 lots = 1.0
                 if ok and portfolio:
-                    risk_money = (risk_pct / 100.0) * bal * s_risk_mult[k]
-                    # never let a single stop breach the daily guards
+                    base_risk = (risk_pct / 100.0) * bal * s_risk_mult[k]
+                    risk_money = base_risk
+                    # never let a single stop breach the guards (open positions' risk to their stops included)
+                    open_risk = 0.0
+                    for j in range(MAXP):
+                        if p_on[j]:
+                            px = c[i] if p_dir[j] > 0 else c[i] + sp
+                            lr = p_dir[j] * (px - p_sl[j]) * p_lots[j] * contract
+                            if lr > 0:
+                                open_risk += lr
                     room = daily_loss_pct / 100.0 * day_start_bal + (bal - day_start_bal) + flo
-                    if day_peak >= giveback_arm_pct / 100.0 * day_start_bal and day_peak > 0:
+                    if daily_gb_on and day_peak >= giveback_arm_pct / 100.0 * day_start_bal and day_peak > 0:
                         room2 = (bal - day_start_bal) + flo - day_peak * (1.0 - giveback_pct / 100.0)
                         if room2 < room:
                             room = room2
+                    # the whole-account lock is a stop trigger, not a sizing cap: capping size by its
+                    # (often tiny) room freezes the bot right after the lock arms
+                    room -= open_risk
                     if room * 0.9 < risk_money:
                         risk_money = room * 0.9
-                    lots = np.floor(risk_money / ((R + sp) * contract) / lot_step) * lot_step
+                    unit = (R + sp) * contract
+                    lots = np.floor(risk_money / unit / lot_step + 1e-9) * lot_step
                     if lots < min_lot:
-                        ok = False
+                        if min_lot * unit <= base_risk * (1.0 + minlot_tol) and min_lot * unit <= room * 0.9:
+                            lots = min_lot
+                        else:
+                            ok = False
                 if ok:
                     for j in range(MAXP):
                         if p_on[j] == 0:
@@ -586,7 +620,7 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
                             taken[k] = 1
                             break
             k += 1
-    return taken, out_R, out_exit_bar, out_pnl, out_reason, out_mfe, eq_day
+    return taken, out_R, out_exit_bar, out_pnl, out_reason, out_mfe, eq_day, acct_stop_bar
 
 
 DEFAULT_MGMT = dict(be_r=1.0, be_lock_r=0.1, partial_r=1.0, partial_frac=0.0, trail_start_r=1.5, trail_atr=2.5,
@@ -620,7 +654,8 @@ def prepare_m1(m1: pd.DataFrame, b: pd.DataFrame, spread_floor=0.25, spread_bp=1
 def simulate(M: dict, sig: pd.DataFrame, mgmt: dict | None = None, portfolio=False, risk_mult=None,
              start_bal=1000.0, risk_pct=2.0, daily_loss_pct=50.0, giveback_pct=40.0, giveback_arm_pct=1.0,
              max_pos=2, contract=100.0, min_lot=0.01, lot_step=0.01,
-             swap_long_pa=0.05, swap_short_pa=0.01):
+             swap_long_pa=0.05, swap_short_pa=0.01, close_on_stop=True, daily_giveback=True,
+             account_lock=False, account_gb_pct=40.0, account_arm_pct=1.0, minlot_tol=0.0, return_lock=False):
     mg = {**DEFAULT_MGMT, **(mgmt or {})}
     t = M["t"]
     # entry at the first M1 bar that opens at/after the signal bar close
@@ -639,8 +674,10 @@ def simulate(M: dict, sig: pd.DataFrame, mgmt: dict | None = None, portfolio=Fal
                     int(mg["max_bars_m15"] * 15), mg["time_stop_min_r"], mg["friday_close_h"], mg["intraday_close_ny_h"],
                     M["ny_h"], portfolio, start_bal, risk_pct, daily_loss_pct, giveback_pct, giveback_arm_pct,
                     max_pos, contract, min_lot, lot_step, M["day_id"], mg["slip"], M["roll"],
-                    swap_long_pa / 360.0, swap_short_pa / 360.0)
-    taken, R, exit_bar, pnl, reason, mfe, eq = res
+                    swap_long_pa / 360.0, swap_short_pa / 360.0,
+                    np.array([float(close_on_stop), float(daily_giveback), float(account_lock), account_gb_pct,
+                              account_arm_pct, minlot_tol]))
+    taken, R, exit_bar, pnl, reason, mfe, eq, lock_bar = res
     sig = sig.copy()
     sig["taken"] = taken.astype(bool) & (exit_bar >= 0)  # drop trades still open at the end of data
     sig["R"] = R
@@ -649,6 +686,8 @@ def simulate(M: dict, sig: pd.DataFrame, mgmt: dict | None = None, portfolio=Fal
     sig["mfe"] = mfe
     sig["exit_time"] = t.values[np.clip(exit_bar, 0, len(t) - 1)]
     sig["orig_order"] = order[valid]
+    if return_lock:
+        return sig, pd.Series(eq, index=t), (t[lock_bar] if lock_bar >= 0 else None)
     return sig, pd.Series(eq, index=t)
 
 
