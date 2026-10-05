@@ -3,7 +3,7 @@
 //| symbol so an EA attached to it runs OnTick offline (smoke test).  |
 //+------------------------------------------------------------------+
 input string InpSymbol = "XAUUSD.live";
-input int    InpSeconds = 60;
+input int    InpSeconds = 240;
 
 void OnStart()
   {

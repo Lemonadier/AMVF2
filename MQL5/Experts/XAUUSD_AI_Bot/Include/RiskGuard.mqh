@@ -169,9 +169,10 @@ public:
                m_tradesToday++;
            }
         }
-      m_base = AccountInfoDouble(ACCOUNT_BALANCE) - accRealized;
+      double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+      m_base = bal - accRealized;
       if(m_base <= 0)
-         m_base = AccountInfoDouble(ACCOUNT_BALANCE);
+         m_base = bal;
       m_realized = scopeRealized;
       m_realizedPeak = runPeak;
       m_dirty = false;
@@ -214,6 +215,12 @@ public:
         }
       if(m_stopped)
          return false;
+      // account data not loaded yet (terminal just started / not logged in): never judge on a zero balance
+      if(m_base <= 0 || AccountInfoDouble(ACCOUNT_BALANCE) <= 0)
+        {
+         m_dirty = true;
+         return false;
+        }
       if(net <= -LossLimit())
         {
          Stop(1, "DAILY LOSS LIMIT");

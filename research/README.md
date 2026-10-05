@@ -17,6 +17,7 @@ Results and conclusions: [../docs/RESEARCH.md](../docs/RESEARCH.md).
 | `mt5/XauBot_ImportGold.mq5` | Builds a custom gold symbol in MT5 from an M1 CSV. |
 | `mt5/XauBot_ParityTest.mq5` | Replays history through the EA's `CMarket`/`CSignals` and writes all signals. |
 | `mt5/XauBot_TickFeeder.mq5` | Pushes synthetic ticks into a custom symbol for an offline live-mode smoke test. |
+| `mt5/XauBot_SmokeDriver.mq5` | Test-only wrapper: runs the real EA from a timer (offline terminals send no `OnTick`) and injects signals. |
 
 ## Data
 

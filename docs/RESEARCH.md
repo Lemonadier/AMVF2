@@ -239,10 +239,18 @@ The remaining differences come from MT5 including a few holiday half-day daily
 candles that the Python version drops. That moves the daily EMA50 by about 0.1–0.3%, which
 only matters when price sits right on it.
 
-A live smoke test (EA attached to a custom symbol, fed synthetic ticks in MT5 under
-Wine) ran without runtime errors. MetaTrader's Strategy Tester itself could not run in
-this environment: it requires a broker account login. **Please run the Strategy Tester
-on your broker's data** (see README) before going live.
+**Live-mode smoke test.** The EA was attached to a custom gold symbol in MT5 (Wine, offline)
+and driven by a 1-second timer (`research/mt5/XauBot_SmokeDriver.mq5`; an offline terminal does
+not deliver `OnTick`), with ticks pushed in by `XauBot_TickFeeder`. It detected bar closes on
+schedule and computed indicators and the daily filter. Injected signals went through the real
+feature, AI, shadow-trade, pre-trade-check and sizing code: features mirror correctly for buy and
+sell, shadow trades resolved and the model learned from them, and the model was saved and
+reloaded. No runtime errors. This test found and fixed one real bug: right after a terminal start,
+before account data loads, the balance reads 0 and the daily-loss check fired a false all-day stop.
+
+MetaTrader's Strategy Tester itself could not run in this environment because it requires a
+broker account login. **Please run the Strategy Tester on your broker's data** (see README)
+before going live.
 
 ### 4.10 Out-of-sample: January–July 2026
 
