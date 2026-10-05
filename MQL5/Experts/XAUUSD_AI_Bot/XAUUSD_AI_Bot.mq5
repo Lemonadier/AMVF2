@@ -20,7 +20,7 @@
 //|  Test on a demo account first.                                    |
 //+------------------------------------------------------------------+
 #property copyright "XAUUSD AI Bot"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Gold-only trend-following robot with daily loss limit, profit giveback lock and online learning."
 
 #include "Include/Common.mqh"

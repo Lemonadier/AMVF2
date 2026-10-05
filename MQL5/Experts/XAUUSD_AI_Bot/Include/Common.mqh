@@ -5,7 +5,7 @@
 #ifndef XAUBOT_COMMON_MQH
 #define XAUBOT_COMMON_MQH
 
-#define XB_VERSION      "1.00"
+#define XB_VERSION      "1.10"
 #define XB_NSTRAT       5
 #define XB_NFEAT        20
 
