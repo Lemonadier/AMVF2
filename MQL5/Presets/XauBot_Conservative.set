@@ -1,0 +1,3 @@
+InpRiskPerTradePct=0.5
+InpMaxOpenPositions=1
+InpMaxTradesPerDay=6

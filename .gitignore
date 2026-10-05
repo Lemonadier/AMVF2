@@ -1,0 +1,10 @@
+# data and caches
+research/data/
+*.pkl
+*.csv
+!MQL5/**/*.csv
+__pycache__/
+*.pyc
+# MetaEditor logs
+*.log
+research/mt5/*.ex5
