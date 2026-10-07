@@ -321,6 +321,21 @@ If you restart right away, the lock changes almost nothing in the long run, beca
 edge comes from the strategy. Its value is in what you do when it fires: **bank the
 profit** (withdraw or keep it aside) before starting the next round.
 
+### 4.12 Can it make +50% to +200% a day?
+
+`research/run_high_risk.py`. 1,900 USC cent account, both periods, with and without the daily
+rule (stop for the day if profit falls back under +50% after reaching it; stop at +200%).
+
+| Risk per trade | 2011–2018 result | 2019–2026 result | Days at +50% or more | Worst fall |
+|---|---|---|---|---|
+| 2% (preset) | 1,900 → 3,577 | 1,900 → 11,000 | 0 | 60–68% |
+| 5% | 1,900 → 572 | 1,900 → 14,169 | 4–7 in 8 years | 96–98% |
+| 10% | wiped (Jul 2011 / May 2015) | wiped (Nov 2019) | 12–26 | 99–100% |
+| 20–30% | wiped within weeks | wiped within months | 5–26 | 100% |
+
+Daily +50% to +200% is not a realistic target: the risk needed to reach it destroys the
+account first. The daily floor/target rule is kept as protection for rare big days.
+
 ## 5. Limits of this research. Read before trusting any number
 
 * **Backtests are not the future.** Gold's behaviour can change: central-bank buying,

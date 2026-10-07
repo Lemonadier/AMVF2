@@ -15,3 +15,5 @@ InpGMTMode=2
 InpManualGMTOffset=0
 InpMaxSpreadUSD=1.0
 InpMaxSlippageUSD=0.5
+InpDayProfitFloorPct=50
+InpDayProfitTargetPct=200

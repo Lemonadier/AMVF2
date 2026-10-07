@@ -416,6 +416,9 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
     acct_gb = opts[3] / 100.0
     acct_arm = opts[4] / 100.0 * start_bal
     minlot_tol = opts[5]
+    day_floor = opts[6] / 100.0    # once the day reaches +floor%, stop if it falls back under +floor%
+    day_target = opts[7] / 100.0   # stop for the day at +target% (0 = off)
+    day_floor_on = False
     acct_peak = 0.0
     acct_stop = False
     acct_stop_bar = -1
@@ -446,6 +449,7 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
             day_start_bal = bal
             day_peak = 0.0
             day_stop = False
+            day_floor_on = False
         bid_o, bid_h, bid_l, bid_c = o[i], h[i], l[i], c[i]
         sp = spread[i]
         # ---------------- manage open positions on this bar
@@ -539,6 +543,14 @@ def _simulate(t_min, o, h, l, c, spread, atr_m1, dow, utc_h,
             if cur <= -daily_loss_pct / 100.0 * day_start_bal:
                 hit = True
             if daily_gb_on and day_peak >= giveback_arm_pct / 100.0 * day_start_bal and day_peak > 0 and cur <= day_peak * (1.0 - giveback_pct / 100.0):
+                hit = True
+            # daily profit floor / target
+            if day_floor > 0:
+                if cur >= day_floor * day_start_bal:
+                    day_floor_on = True
+                if day_floor_on and cur < day_floor * day_start_bal:
+                    hit = True
+            if day_target > 0 and cur >= day_target * day_start_bal:
                 hit = True
             # whole-account profit giveback lock (latched until manual reset)
             acct_real = bal - start_bal
@@ -655,7 +667,8 @@ def simulate(M: dict, sig: pd.DataFrame, mgmt: dict | None = None, portfolio=Fal
              start_bal=1000.0, risk_pct=2.0, daily_loss_pct=50.0, giveback_pct=40.0, giveback_arm_pct=1.0,
              max_pos=2, contract=100.0, min_lot=0.01, lot_step=0.01,
              swap_long_pa=0.05, swap_short_pa=0.01, close_on_stop=True, daily_giveback=True,
-             account_lock=False, account_gb_pct=40.0, account_arm_pct=1.0, minlot_tol=0.0, return_lock=False):
+             account_lock=False, account_gb_pct=40.0, account_arm_pct=1.0, minlot_tol=0.0, return_lock=False,
+             day_floor_pct=0.0, day_target_pct=0.0):
     mg = {**DEFAULT_MGMT, **(mgmt or {})}
     t = M["t"]
     # entry at the first M1 bar that opens at/after the signal bar close
@@ -676,7 +689,7 @@ def simulate(M: dict, sig: pd.DataFrame, mgmt: dict | None = None, portfolio=Fal
                     max_pos, contract, min_lot, lot_step, M["day_id"], mg["slip"], M["roll"],
                     swap_long_pa / 360.0, swap_short_pa / 360.0,
                     np.array([float(close_on_stop), float(daily_giveback), float(account_lock), account_gb_pct,
-                              account_arm_pct, minlot_tol]))
+                              account_arm_pct, minlot_tol, day_floor_pct, day_target_pct]))
     taken, R, exit_bar, pnl, reason, mfe, eq, lock_bar = res
     sig = sig.copy()
     sig["taken"] = taken.astype(bool) & (exit_bar >= 0)  # drop trades still open at the end of data

@@ -19,6 +19,8 @@ around your two account rules and a trend-following engine that I tested on
 | **2. "Keep trading until loss = 40% of net profit" — whole account** | The bot tracks the account's **best net profit since the bot started** (or since you last reset it). It keeps trading normally. When **40% of that best profit** has been given back, it **stops opening trades** and stays stopped until you reset it. Example: profit grows to **+$100**; when it falls back to **+$60**, trading stops. If profit first reaches +$250, the stop moves up to +$150. |
 | **"Stop open trades"** | When either rule fires, the bot **only stops opening new trades**. Trades already open keep their stop-loss and trailing stop and finish normally. Set `InpCloseOnStop = true` if you would rather have them closed immediately. |
 
+| **3. Daily profit floor (+50%) and target (+200%)** | If a day's profit reaches **+50%** of the day-start balance and then falls back **under +50%**, no more trades that day. At **+200%** the bot stops for the day. These lock in rare big days; they cannot create them. With 2% risk, no day in 15 years reached +50% (best day +42%). Getting +50% days needs 5%+ risk per trade, which in simulation fell 96–98% at some point, and 10%+ wiped the account within months. See docs/RESEARCH.md 4.12. |
+
 Details that matter:
 
 * **When the account lock starts (arms).** It arms once the account profit reaches **+25% of

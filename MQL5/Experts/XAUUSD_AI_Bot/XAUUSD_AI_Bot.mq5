@@ -20,7 +20,7 @@
 //|  Test on a demo account first.                                    |
 //+------------------------------------------------------------------+
 #property copyright "XAUUSD AI Bot"
-#property version   "1.10"
+#property version   "1.20"
 #property description "Gold-only trend-following robot with daily loss limit, profit giveback lock and online learning."
 
 #include "Include/Common.mqh"
@@ -45,6 +45,8 @@ input ENUM_XB_PEAK_BASIS InpPeakBasis        = XB_PEAK_REALIZED;  // Best profit
 input bool              InpResetAccountLock  = false;             // Reset the account profit lock (new start = now), then set back to false
 input datetime          InpAccountStartDate  = 0;                 // Count account profit from this date (0 = when the bot starts)
 input int               InpLockAutoRestartDays = 0;               // Restart automatically N days after the lock fires (0 = never)
+input double            InpDayProfitFloorPct = 50.0;              // Once the day is +X% profit, stop that day if it falls back under +X% (0 = off)
+input double            InpDayProfitTargetPct = 200.0;            // Stop new trades for the day at +X% profit (0 = off)
 input bool              InpCloseOnStop       = false;             // Close the bot's positions when a stop fires (false = only stop opening)
 input bool              InpAccountWidePnL    = true;              // Rules use whole-account P/L (false = this bot only)
 input int               InpDayResetHour      = 0;                 // New trading day starts at this server hour
@@ -195,6 +197,7 @@ int OnInit()
    g_guard.Init(InpMagic, _Symbol, InpDailyMaxLossPct, InpGivebackPct, InpGivebackArmPct, InpGivebackScope, InpPeakBasis,
                 InpAccountWidePnL, InpDayResetHour, InpPauseAfterLosses, InpPauseMinutes, InpLockAutoRestartDays,
                 resetLock, InpAccountStartDate);
+   g_guard.SetDayProfitRules(InpDayProfitFloorPct, InpDayProfitTargetPct);
 
    if(!g_market.Init(_Symbol, InpSignalTF))
       return INIT_FAILED;

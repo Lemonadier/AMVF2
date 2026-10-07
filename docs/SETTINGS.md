@@ -16,6 +16,8 @@ on made the 2011–2026 results worse.
 | `InpResetAccountLock` | false | Set to **true** and press OK to start a new round: baseline = now, lock cleared. It acts once; set it back to false afterwards (the bot reminds you). |
 | `InpAccountStartDate` | 0 | Count account profit from this date instead of from when the bot first started. Example: the date you deposited. |
 | `InpLockAutoRestartDays` | 0 | Restart automatically this many days after the account lock fires (new baseline = that moment). 0 = only by manual reset. |
+| `InpDayProfitFloorPct` | 50 | Once the day's profit (closed + open) has reached +50% of the day-start balance, stop new trades for the rest of the day if it falls back under +50%. 0 = off. |
+| `InpDayProfitTargetPct` | 200 | Stop new trades for the day once the day's profit reaches +200%. 0 = off. |
 | `InpCloseOnStop` | false | When a rule fires: *false* = only stop opening new trades, open trades keep their stops; *true* = also close the bot's open trades. |
 | `InpAccountWidePnL` | true | Rules use the whole account's P/L (all symbols, manual trades too). `false` = only this bot's trades. The bot only ever closes **its own** positions. |
 | `InpDayResetHour` | 0 | Server hour when a new trading day starts (Exness: 0 = 00:00 UTC). |

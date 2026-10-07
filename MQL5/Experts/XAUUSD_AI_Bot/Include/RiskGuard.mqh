@@ -46,6 +46,8 @@ private:
    int               m_maxConsec;
    int               m_pauseMin;
    int               m_autoRestartDays;
+   double            m_floorPct;      // day profit floor: once the day is +floor%, stop if back under it
+   double            m_targetPct;     // day profit target: stop new trades for the day at +target%
    bool              m_tester;
    string            m_file;
    long              m_fileLogin;     // account number the state file was opened for
@@ -145,6 +147,8 @@ public:
       m_resetHour = (int)Clip(resetHour, 0, 23);
       m_maxConsec = maxConsec; m_pauseMin = pauseMin;
       m_autoRestartDays = autoRestartDays;
+      m_floorPct = 0.0;
+      m_targetPct = 0.0;
       m_tester = (bool)MQLInfoInteger(MQL_TESTER);
       m_fileLogin = AccountInfoInteger(ACCOUNT_LOGIN);
       m_file = StringFormat("XauBot_%I64d_%I64d_account.txt", m_fileLogin, magic);
@@ -178,6 +182,12 @@ public:
 
    void MarkDirty() { m_dirty = true; }
 
+   void SetDayProfitRules(const double floorPct, const double targetPct)
+     {
+      m_floorPct = floorPct;
+      m_targetPct = targetPct;
+     }
+
    //--- start a new account baseline now (reset of the lock)
    void ResetAccountLock()
      {
@@ -206,7 +216,8 @@ public:
            {
             m_dayStopped = true;
             int code = (int)GVGet(Key("stopcode"), 0);
-            m_dayReason = (code == 1) ? "DAILY LOSS LIMIT" : (code == 2 ? "DAILY PROFIT GIVEBACK" : "STOPPED");
+            m_dayReason = (code == 1) ? "DAILY LOSS LIMIT" : (code == 2 ? "DAILY PROFIT GIVEBACK" :
+                          (code == 3 ? "DAILY PROFIT FLOOR" : (code == 4 ? "DAILY PROFIT TARGET" : "STOPPED")));
            }
          if((datetime)GVGet(Key("peakday"), 0) == m_dayStart)
             m_dayEquityPeak = GVGet(Key("peak"), 0.0);
@@ -372,6 +383,18 @@ public:
       if(!m_dayStopped && m_scope == XB_GB_DAY && DayArmed() && dayNet <= DayPeak() * (1.0 - m_gbPct / 100.0))
         {
          StopDay(2, "DAILY PROFIT GIVEBACK");
+         fired = true;
+        }
+      // day profit floor: the best day net (closed or with open trades) reached +floor%, now back under it
+      double bestDay = MathMax(m_dayEquityPeak, m_dayRealizedPeak);
+      if(!m_dayStopped && m_floorPct > 0 && bestDay >= m_base * m_floorPct / 100.0 && dayNet < m_base * m_floorPct / 100.0)
+        {
+         StopDay(3, "DAILY PROFIT FLOOR");
+         fired = true;
+        }
+      if(!m_dayStopped && m_targetPct > 0 && dayNet >= m_base * m_targetPct / 100.0)
+        {
+         StopDay(4, "DAILY PROFIT TARGET");
          fired = true;
         }
       if(!m_acctStopped && m_scope == XB_GB_ACCOUNT && AccountArmed() && acctNet <= AccountPeak() * (1.0 - m_gbPct / 100.0))
